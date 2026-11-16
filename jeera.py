@@ -62,8 +62,9 @@ with tab1:
     request = st.text_area("وش تحتاج؟", key="req_text")
     if st.button("أرسل الطلب"):
         if name and request:
-            data["requests"].append({"name": name, "text": request,
-                                     "hood": neighborhood, "time": now()})
+            data["requests"].append({"id": now() + name, "name": name, "text": request,
+                                     "hood": neighborhood, "time": now(),
+                                     "replies": [], "solved": False})
             save_data(data)
             st.success("تم إرسال طلبك للجيران ✅")
         else:
@@ -71,11 +72,34 @@ with tab1:
 
     st.subheader("طلبات الجيران")
     found = False
-    for r in reversed(data["requests"]):
-        if r["hood"] == neighborhood:
-            found = True
-            st.markdown(f"<div class='card'><b>{r['name']}</b>: {r['text']}<br><small>{r['time']}</small></div>",
-                        unsafe_allow_html=True)
+    for i, r in enumerate(reversed(data["requests"])):
+        if r["hood"] != neighborhood:
+            continue
+        found = True
+        r.setdefault("replies", [])
+        r.setdefault("solved", False)
+        status = " ✅ تم الحل" if r["solved"] else ""
+        st.markdown(f"<div class='card'><b>{r['name']}</b>: {r['text']}{status}<br><small>{r['time']}</small></div>",
+                    unsafe_allow_html=True)
+
+        with st.expander(f"💬 الردود ({len(r['replies'])})"):
+            for rep in r["replies"]:
+                st.write(f"🤝 **{rep['name']}**: {rep['text']}  ({rep['time']})")
+            if not r["solved"]:
+                helper = st.text_input("اسمك", key=f"h_name_{i}")
+                reply = st.text_input("ردك (مثل: أقدر أساعدك الساعة 5)", key=f"h_text_{i}")
+                c1, c2 = st.columns(2)
+                if c1.button("🤝 أبي أساعد", key=f"h_btn_{i}"):
+                    if helper and reply:
+                        r["replies"].append({"name": helper, "text": reply, "time": now()})
+                        save_data(data)
+                        st.rerun()
+                    else:
+                        st.warning("اكتب اسمك وردك")
+                if c2.button("✅ تم الحل", key=f"solve_{i}"):
+                    r["solved"] = True
+                    save_data(data)
+                    st.rerun()
     if not found:
         st.write("ما فيه طلبات للحين.")
 
