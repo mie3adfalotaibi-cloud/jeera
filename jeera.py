@@ -2,6 +2,9 @@ import streamlit as st
 import json
 import os
 from datetime import datetime
+import base64
+import io
+from PIL import Image, ImageDraw
 
 # ---------- الإعدادات والتصميم ----------
 st.set_page_config(page_title="جيرة", page_icon="🏘️")
@@ -38,6 +41,13 @@ def save_data(data):
 
 data = load_data()
 
+def image_to_text(file):
+    img = Image.open(file).convert("RGB")
+    img.thumbnail((600, 600))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=70)
+    return base64.b64encode(buf.getvalue()).decode()
+
 def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -54,16 +64,18 @@ stores = {
     "حي الياسمين": ["سوبرماركت الياسمين", "صيدلية الياسمين", "حلاق الحي"],
 }
 
-tab1, tab2, tab3 = st.tabs(["🤝 طلب مساعدة", "📢 إعلانات الحي", "🏪 المتاجر القريبة"])
+tab1, tab2, tab3, tab4 = st.tabs(["🤝 طلب مساعدة", "📢 إعلانات الحي", "🏪 المتاجر القريبة", "🚁 درون الحي"])
 
 # ---------- 1) طلب المساعدة ----------
 with tab1:
     name = st.text_input("اسمك", key="req_name")
     request = st.text_area("وش تحتاج؟", key="req_text")
+    photo = st.file_uploader("📷 أضف صورة (اختياري)", type=["jpg", "jpeg", "png"], key="req_photo")
     if st.button("أرسل الطلب"):
         if name and request:
             data["requests"].append({"id": now() + name, "name": name, "text": request,
                                      "hood": neighborhood, "time": now(),
+                                     "photo": image_to_text(photo) if photo else None,
                                      "replies": [], "solved": False})
             save_data(data)
             st.success("تم إرسال طلبك للجيران ✅")
@@ -81,6 +93,8 @@ with tab1:
         status = " ✅ تم الحل" if r["solved"] else ""
         st.markdown(f"<div class='card'><b>{r['name']}</b>: {r['text']}{status}<br><small>{r['time']}</small></div>",
                     unsafe_allow_html=True)
+        if r.get("photo"):
+            st.image(base64.b64decode(r["photo"]), width=300)
 
         with st.expander(f"💬 الردود ({len(r['replies'])})"):
             for rep in r["replies"]:
@@ -132,3 +146,67 @@ with tab3:
     st.subheader("متاجر " + neighborhood)
     for store in stores[neighborhood]:
         st.markdown(f"<div class='card'>📍 {store}</div>", unsafe_allow_html=True)
+
+# ---------- 4) درون الحي (محاكاة) ----------
+def draw_map():
+    m = Image.new("RGB", (800, 600), (233, 226, 208))
+    d = ImageDraw.Draw(m)
+    for x in range(0, 800, 200):
+        d.rectangle([x + 80, 0, x + 110, 600], fill=(120, 120, 120))
+    for y in range(0, 600, 200):
+        d.rectangle([0, y + 80, 800, y + 110], fill=(120, 120, 120))
+    colors = [(200, 120, 90), (210, 180, 120), (170, 150, 200), (140, 180, 160)]
+    k = 0
+    for x in range(0, 800, 200):
+        for y in range(0, 600, 200):
+            if (x, y) == (400, 200):
+                d.rectangle([x + 120, y + 120, x + 190, y + 190], fill=(90, 170, 90))
+                d.ellipse([x + 135, y + 135, x + 175, y + 175], fill=(60, 130, 60))
+            else:
+                d.rectangle([x + 125, y + 125, x + 185, y + 185], fill=colors[k % 4])
+                d.polygon([(x + 120, y + 125), (x + 155, y + 115), (x + 190, y + 125)], fill=(110, 60, 50))
+            k += 1
+    d.ellipse([610, 330, 640, 350], fill=(250, 150, 0))
+    return m
+
+with tab4:
+    st.subheader("🚁 درون الحي (تجربة محاكاة)")
+    st.caption("درون افتراضي يطير فوق خريطة مرسومة للحي، بدون درون حقيقي وبدون تصوير أحد.")
+
+    if "drone" not in st.session_state:
+        st.session_state.drone = [400, 300]
+        st.session_state.gallery = []
+    x, y = st.session_state.drone
+    step = 50
+
+    c1, c2, c3, c4 = st.columns(4)
+    if c1.button("⬆️ فوق"):
+        y = max(75, y - step)
+    if c2.button("⬇️ تحت"):
+        y = min(525, y + step)
+    if c3.button("➡️ يمين"):
+        x = min(725, x + step)
+    if c4.button("⬅️ يسار"):
+        x = max(75, x - step)
+    st.session_state.drone = [x, y]
+
+    base = draw_map()
+    view = base.copy()
+    d = ImageDraw.Draw(view)
+    d.rectangle([x - 75, y - 75, x + 75, y + 75], outline=(220, 0, 0), width=4)
+    d.text((x - 8, y - 8), "+", fill=(220, 0, 0))
+
+    left, right = st.columns(2)
+    left.image(view, caption="الخريطة: المربع الأحمر = مكان الدرون")
+    cam = base.crop((x - 75, y - 75, x + 75, y + 75)).resize((300, 300))
+    right.image(cam, caption="كاميرا الدرون 📷")
+
+    if st.button("📸 التقط صورة"):
+        st.session_state.gallery.append(cam)
+        st.success("تم التقاط الصورة ✅")
+
+    if st.session_state.gallery:
+        st.write("الصور الملتقطة:")
+        cols = st.columns(4)
+        for n, g in enumerate(st.session_state.gallery[-4:]):
+            cols[n].image(g)
